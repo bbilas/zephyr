@@ -95,31 +95,6 @@ typedef int16_t device_handle_t;
 		      NULL, NULL, level, prio, NULL)
 
 /**
- * @def DEVICE_INIT
- *
- * @brief Invoke DEVICE_DEFINE() with no power management support (@p
- * pm_control_fn) and no API (@p api_ptr).
- */
-#define DEVICE_INIT(dev_name, drv_name, init_fn,			\
-		    data_ptr, cfg_ptr, level, prio)			\
-	__DEPRECATED_MACRO						\
-	DEVICE_DEFINE(dev_name, drv_name, init_fn, NULL,		\
-		      data_ptr, cfg_ptr, level, prio, NULL)
-
-/**
- * @def DEVICE_AND_API_INIT
- *
- * @brief Invoke DEVICE_DEFINE() with no power management support (@p
- * pm_control_fn).
- */
-#define DEVICE_AND_API_INIT(dev_name, drv_name, init_fn,		\
-			    data_ptr, cfg_ptr, level, prio, api_ptr)	\
-	__DEPRECATED_MACRO						\
-	DEVICE_DEFINE(dev_name, drv_name, init_fn,			\
-		      NULL,						\
-		      data_ptr, cfg_ptr, level, prio, api_ptr)
-
-/**
  * @def DEVICE_DEFINE
  *
  * @brief Create device object and set it up for boot time initialization,
@@ -387,7 +362,7 @@ struct device {
 #ifdef CONFIG_PM_DEVICE
 	/** Power Management function */
 	int (*pm_control)(const struct device *dev, uint32_t command,
-				 uint32_t *state, pm_device_cb cb, void *arg);
+			  enum pm_device_state *state);
 	/** Pointer to device instance power management data */
 	struct pm_device * const pm;
 #endif
