@@ -27,6 +27,8 @@ enum spi_ctx_runtime_op_mode {
 struct spi_context {
 	const struct spi_config *config;
 	const struct spi_config *owner;
+	const struct spi_cs_control *cs_gpios;
+	const size_t num_cs_gpios;
 
 	struct k_sem lock;
 	struct k_sem sync;
@@ -56,6 +58,15 @@ struct spi_context {
 
 #define SPI_CONTEXT_INIT_SYNC(_data, _ctx_name)				\
 	._ctx_name.sync = Z_SEM_INITIALIZER(_data._ctx_name.sync, 0, 1)
+
+#define SPI_CONTEXT_CS_GPIO_DT_SPEC_ELEM(node_id, prop, idx)		\
+	GPIO_DT_SPEC_GET_BY_IDX(node_id, prop, idx),
+
+#define SPI_CONTEXT_CS_GPIOS_INITIALIZE(inst)				\
+	(const struct spi_cs_control []) {				\
+		DT_FOREACH_PROP_ELEM(DT_DRV_INST(inst), cs_gpios,	\
+				     SPI_CONTEXT_CS_GPIO_DT_SPEC_ELEM)	\
+	}
 
 static inline bool spi_context_configured(struct spi_context *ctx,
 					  const struct spi_config *config)
@@ -183,17 +194,27 @@ gpio_dt_flags_t spi_context_cs_active_level(struct spi_context *ctx)
 	return GPIO_ACTIVE_LOW;
 }
 
+static inline void spi_cs_configure(const struct spi_cs_control *cs_gpio)
+{
+	return gpio_pin_configure(cs_gpio->gpio_dev,
+			   cs_gpio->gpio_pin,
+			   cs_gpio->gpio_dt_flags |
+			   GPIO_OUTPUT_INACTIVE);
+}
+
 static inline void spi_context_cs_configure(struct spi_context *ctx)
 {
-	if (ctx->config->cs && ctx->config->cs->gpio_dev) {
+	int ret;
+
+	if (ctx->config->cs) {
 		/* Validate CS active levels are equivalent */
 		__ASSERT(spi_context_cs_active_level(ctx) ==
 			 (ctx->config->cs->gpio_dt_flags & GPIO_ACTIVE_LOW),
 			 "Devicetree and spi_context CS levels are not equal");
-		gpio_pin_configure(ctx->config->cs->gpio_dev,
-				   ctx->config->cs->gpio_pin,
-				   ctx->config->cs->gpio_dt_flags |
-				   GPIO_OUTPUT_INACTIVE);
+		ret = spi_cs_configure(&ctx->config->cs);
+		if (ret < 0) {
+			LOG_ERR("Failed to configure 'cs' gpio: %d", ret);
+		}
 	} else {
 		LOG_INF("CS control inhibited (no GPIO device)");
 	}

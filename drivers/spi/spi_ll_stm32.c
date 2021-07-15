@@ -796,6 +796,22 @@ static const struct spi_driver_api api_funcs = {
 	.release = spi_stm32_release,
 };
 
+static int spi_stm32_cs_gpios_configure(const struct spi_stm32_data *data)
+{
+	const struct spi_cs_control *cs_gpio;
+	int err;
+
+	for (cs_gpio = data->ctx.cs_gpios;
+	     cs_gpio < &data->ctx.cs_gpios[data->ctx.num_cs_gpios];
+	     cs_gpio++) {
+		 err = spi_cs_configure(cs_gpio);
+		 if (err) {
+			 return err;
+	}
+
+	return 0;
+}
+
 static int spi_stm32_init(const struct device *dev)
 {
 	struct spi_stm32_data *data __attribute__((unused)) = dev->data;
@@ -814,6 +830,11 @@ static int spi_stm32_init(const struct device *dev)
 					 (uint32_t)cfg->spi);
 	if (err < 0) {
 		LOG_ERR("SPI pinctrl setup failed (%d)", err);
+		return err;
+	}
+
+	err = spi_stm32_cs_gpios_configure(data);
+	if (err) {
 		return err;
 	}
 
@@ -929,6 +950,8 @@ static struct spi_stm32_data spi_stm32_dev_data_##id = {		\
 	SPI_DMA_CHANNEL(id, rx, RX, PERIPHERAL, MEMORY)			\
 	SPI_DMA_CHANNEL(id, tx, TX, MEMORY, PERIPHERAL)			\
 	SPI_DMA_STATUS_SEM(id)						\
+	.ctx.spi_cs_gpios.cs_gpios = SPI_CONTEXT_CS_GPIOS_INITIALIZE(id),\
+	.ctx.spi_cs_gpios.num_cs_gpios = DT_INST_PROP_LEN(id, cs_gpios)	\
 };									\
 									\
 DEVICE_DT_INST_DEFINE(id, &spi_stm32_init, NULL,			\
