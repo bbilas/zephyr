@@ -21,6 +21,11 @@ properties:
       required: true
       description: Configuration register
 
+    adc_config:
+      type: int
+      required: false
+      description: ADC configuration register
+
     current_lsb:
       type: int
       required: true
