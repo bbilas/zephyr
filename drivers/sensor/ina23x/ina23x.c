@@ -17,6 +17,38 @@
 
 LOG_MODULE_REGISTER(INA23X, CONFIG_SENSOR_LOG_LEVEL);
 
+enum REG_FIELDS {
+	INA23X_REG_CONFIG,
+	INA23X_REG_SHUNT_VOLT,
+	INA23X_REG_BUS_VOLT,
+	INA23X_REG_POWER,
+	INA23X_REG_CURRENT,
+	INA23X_REG_CALIB,
+	INA23X_REG_MASK,
+	INA23X_REG_ALERT,
+};
+
+static const uint8_t ina230_231_reg_map[] = {
+	[INA23X_REG_CONFIG] = 0x00,
+	[INA23X_REG_SHUNT_VOLT] = 0x01,
+	[INA23X_REG_BUS_VOLT] = 0x02,
+	[INA23X_REG_POWER] = 0x03,
+	[INA23X_REG_CURRENT] = 0x04,
+	[INA23X_REG_CALIB] = 0x05,
+	[INA23X_REG_MASK] = 0x06,
+	[INA23X_REG_ALERT] = 0x07,
+};
+
+static const uint8_t ina237_reg_map[] = {
+	[INA23X_REG_CONFIG] = 0x00,
+	[INA23X_REG_SHUNT_VOLT] = 0x04,
+	[INA23X_REG_BUS_VOLT] = 0x05,
+	[INA23X_REG_POWER] = 0x08,
+	[INA23X_REG_CURRENT] = 0x07,
+	[INA23X_REG_CALIB] = 0x02,
+	[INA23X_REG_MASK] = 0x06,
+	[INA23X_REG_ALERT] = 0x0B,
+};
 /**
  * @brief Macro used to test if the current's sign bit is set
  */
@@ -28,36 +60,56 @@ LOG_MODULE_REGISTER(INA23X, CONFIG_SENSOR_LOG_LEVEL);
 #define CURRENT_LSB_1MA         1
 
 /**
- * @brief Macro for creating the INA23X calibration value
- *        CALIB = (5120 / (current_lsb * rshunt))
- *        NOTE: The 5120 value is a fixed value internal to the
- *              INA23X that is used to ensure scaling is properly
+ * @brief Macros for creating the INA23X calibration value
+ *        CALIB = (5120 / (current_lsb * rshunt)) for INA230/INA231
+ *        CALIB = ((8192 * current_lsb * rshunt) / 100) for INA237
+ *        NOTE: The 5120 and 8192 values are the fixed values internal to the
+ *              INA23X that are used to ensure scaling is properly
  *              maintained.
  *
  * @param current_lsb Value of the Current register LSB in milliamps
  * @param rshunt Shunt resistor value in milliohms
  */
- #define INA23X_CALIB(current_lsb, rshunt) (5120 / ((current_lsb) * (rshunt)))
+#define INA_230_231_CALIB(current_lsb, rshunt) (5120 / ((current_lsb) * (rshunt)))
+#define INA_237_CALIB(current_lsb, rshunt) ((8192 * current_lsb * rshunt) / 100)
 
 /**
- * @brief Macro to convert raw Bus voltage to millivolts when current_lsb is
+ * @brief Macros to convert raw Bus voltage to millivolts when current_lsb is
  *        set to 1mA.
  *
  * reg value read from bus voltage register
  * clsb value of current_lsb
  */
-#define INA23X_BUS_MV(reg) ((reg) * 125 / 100)
+#define INA_230_231_BUS_MV(reg) ((reg) * 125  / 100)
+#define INA_237_BUS_MV(reg) ((reg * 3125) / 1000)
 
 /**
- * @brief Macro to convert raw power value to milliwatts when current_lsb is
+ * @brief Macros to convert raw power value to milliwatts when current_lsb is
  *        set to 1mA.
  *
  * reg value read from power register
  * clsb value of current_lsb
  */
-#define INA23X_POW_MW(reg) ((reg) * 25)
+#define INA_230_231_POW_MW(reg, current_lsb) ((reg) * 25)
+#define INA_237_POW_MW(reg, current_lsb) ((2 * reg * current_lsb) / 10)
 
-static int ina23x_reg_read(const struct device *dev, uint8_t reg, int16_t *val)
+static int ina23x_reg_read_24(const struct device *dev, uint8_t reg, int32_t *val)
+{
+	const struct ina23x_config *const config = dev->config;
+	uint8_t data[3];
+	int ret;
+
+	ret = i2c_burst_read(config->bus, config->i2c_slv_addr, reg, data, 3);
+	if (ret < 0) {
+		return ret;
+	}
+
+	*val = sys_get_be24(data);
+
+	return ret;
+}
+
+static int ina23x_reg_read(const struct device *dev, uint8_t reg, int32_t *val)
 {
 	const struct ina23x_config *const config = dev->config;
 	uint8_t data[2];
@@ -100,8 +152,15 @@ static int ina23x_channel_get(const struct device *dev,
 	switch (chan) {
 	case SENSOR_CHAN_VOLTAGE:
 		if (config->current_lsb == CURRENT_LSB_1MA) {
-			val->val1 = INA23X_BUS_MV(ina23x->bus_voltage) / 1000U;
-			val->val2 = (INA23X_BUS_MV(ina23x->bus_voltage) % 1000) * 1000;
+			switch(ina23x->id) {
+			case INA237_MANUFACTURER_ID:
+				val->val1 = INA_237_BUS_MV(ina23x->bus_voltage) / 1000U;
+				val->val2 = (INA_237_BUS_MV(ina23x->bus_voltage) % 1000) * 1000;
+				break;
+			default:
+				val->val1 = INA_230_231_BUS_MV(ina23x->bus_voltage) / 1000U;
+				val->val2 = (INA_230_231_BUS_MV(ina23x->bus_voltage) % 1000) * 1000;
+			};
 		} else {
 			val->val1 = ina23x->bus_voltage;
 			val->val2 = 0;
@@ -117,12 +176,25 @@ static int ina23x_channel_get(const struct device *dev,
 			 */
 			if (ina23x->current & CURRENT_SIGN_BIT) {
 				uint16_t current_mag = (~ina23x->current + 1);
-
-				val->val1 = -(current_mag / 1000U);
-				val->val2 = -(current_mag % 1000) * 1000;
+				switch(ina23x->id) {
+					case INA237_MANUFACTURER_ID:
+						val->val1 = -(current_mag / 10000U);
+						val->val2 = -(current_mag % 10000) * 100;
+						break;
+					default:
+						val->val1 = -(current_mag / 1000U);
+						val->val2 = -(current_mag % 1000) * 1000;
+				}
 			} else {
-				val->val1 = ina23x->current / 1000U;
-				val->val2 = (ina23x->current % 1000) * 1000;
+				switch(ina23x->id) {
+					case INA237_MANUFACTURER_ID:
+						val->val1 = ina23x->current / 10000U;
+						val->val2 = (ina23x->current % 10000) * 100;
+						break;
+					default:
+						val->val1 = ina23x->current / 1000U;
+						val->val2 = (ina23x->current % 1000) * 1000;
+				};
 			}
 		} else {
 			val->val1 = ina23x->current;
@@ -132,8 +204,17 @@ static int ina23x_channel_get(const struct device *dev,
 
 	case SENSOR_CHAN_POWER:
 		if (config->current_lsb == CURRENT_LSB_1MA) {
-			val->val1 = INA23X_POW_MW(ina23x->power) / 1000U;
-			val->val2 = (INA23X_POW_MW(ina23x->power) % 1000) * 1000;
+			switch(ina23x->id) {
+			case INA237_MANUFACTURER_ID:
+				val->val1 = INA_237_POW_MW(ina23x->power, config->current_lsb) / 10000U;
+				val->val2 = (INA_237_POW_MW(ina23x->power,
+							   config->current_lsb) % 10000) * 100;
+				break;
+			default:
+				val->val1 = INA_230_231_POW_MW(ina23x->power, config->current_lsb) / 1000U;
+				val->val2 = (INA_230_231_POW_MW(ina23x->power,
+							   config->current_lsb) % 1000) * 1000;
+				};
 		} else {
 			val->val1 = ina23x->power;
 			val->val2 = 0;
@@ -167,7 +248,7 @@ static int ina23x_sample_fetch(const struct device *dev,
 	}
 
 	if ((chan == SENSOR_CHAN_ALL) || (chan == SENSOR_CHAN_VOLTAGE)) {
-		ret = ina23x_reg_read(dev, INA23X_REG_BUS_VOLT, &ina23x->bus_voltage);
+		ret = ina23x_reg_read(dev, ina23x->registers_map[INA23X_REG_BUS_VOLT], &ina23x->bus_voltage);
 		if (ret < 0) {
 			LOG_ERR("Failed to read bus voltage");
 			return ret;
@@ -175,7 +256,7 @@ static int ina23x_sample_fetch(const struct device *dev,
 	}
 
 	if ((chan == SENSOR_CHAN_ALL) || (chan == SENSOR_CHAN_CURRENT)) {
-		ret = ina23x_reg_read(dev, INA23X_REG_CURRENT, &ina23x->current);
+		ret = ina23x_reg_read(dev, ina23x->registers_map[INA23X_REG_CURRENT], &ina23x->current);
 		if (ret < 0) {
 			LOG_ERR("Failed to read current");
 			return ret;
@@ -183,7 +264,14 @@ static int ina23x_sample_fetch(const struct device *dev,
 	}
 
 	if ((chan == SENSOR_CHAN_ALL) || (chan == SENSOR_CHAN_POWER)) {
-		ret = ina23x_reg_read(dev, INA23X_REG_POWER, &ina23x->power);
+		switch(ina23x->id) {
+		case INA237_MANUFACTURER_ID:
+			ret = ina23x_reg_read_24(dev, ina23x->registers_map[INA23X_REG_POWER], &ina23x->power);
+			break;
+		default:
+			ret = ina23x_reg_read(dev, ina23x->registers_map[INA23X_REG_POWER], &ina23x->power);
+		};
+
 		if (ret < 0) {
 			LOG_ERR("Failed to read power");
 			return ret;
@@ -204,7 +292,7 @@ static int ina23x_attr_set(const struct device *dev, enum sensor_channel chan,
 			   enum sensor_attribute attr,
 			   const struct sensor_value *val)
 {
-	uint16_t data = val->val1;
+	int32_t data = val->val1;
 
 	switch (attr) {
 	case SENSOR_ATTR_CONFIGURATION:
@@ -232,7 +320,7 @@ static int ina23x_attr_get(const struct device *dev, enum sensor_channel chan,
 			   enum sensor_attribute attr,
 			   struct sensor_value *val)
 {
-	uint16_t data;
+	int32_t data;
 	int ret;
 
 	switch (attr) {
@@ -280,6 +368,7 @@ static int ina23x_attr_get(const struct device *dev, enum sensor_channel chan,
 static int ina23x_init(const struct device *dev)
 {
 	const struct ina23x_config *const config = dev->config;
+	struct ina23x_data *data = dev->data;
 	uint16_t cal;
 	int ret;
 
@@ -288,15 +377,36 @@ static int ina23x_init(const struct device *dev)
 		return -ENODEV;
 	}
 
-	ret = ina23x_reg_write(dev, INA23X_REG_CONFIG, config->config);
+	/* Only INA237 contains ID register */
+	ret = ina23x_reg_read(dev, INA237_REG_MANUFACTURER_ID, &data->id);
+	if (ret < 0) {
+		LOG_ERR("Failed to read manufacturer register!");
+	}
+
+	switch(data->id) {
+	case INA237_MANUFACTURER_ID:
+		data->registers_map = ina237_reg_map;
+		cal = INA_237_CALIB(config->current_lsb, config->rshunt);
+
+		ret = ina23x_reg_write(dev, INA237_REG_ADC_CONFIG, config->adc_config);
+		if (ret < 0) {
+			LOG_ERR("Failed to write ADC configuration register!");
+			return ret;
+		}
+
+		break;
+	default:
+		data->registers_map = ina230_231_reg_map;
+		cal = INA_230_231_CALIB(config->current_lsb, config->rshunt);
+	};
+
+	ret = ina23x_reg_write(dev, data->registers_map[INA23X_REG_CONFIG], config->config);
 	if (ret < 0) {
 		LOG_ERR("Failed to write configuration register!");
 		return ret;
 	}
 
-	cal = INA23X_CALIB(config->current_lsb, config->rshunt);
-
-	ret = ina23x_reg_write(dev, INA23X_REG_CALIB, cal);
+	ret = ina23x_reg_write(dev, data->registers_map[INA23X_REG_CALIB], cal);
 	if (ret < 0) {
 		LOG_ERR("Failed to write calibration register!");
 		return ret;
@@ -310,14 +420,14 @@ static int ina23x_init(const struct device *dev)
 			return ret;
 		}
 
-		ret = ina23x_reg_write(dev, INA23X_REG_ALERT,
+		ret = ina23x_reg_write(dev, data->registers_map[INA23X_REG_ALERT],
 				       config->alert_limit);
 		if (ret < 0) {
 			LOG_ERR("Failed to write alert register!");
 			return ret;
 		}
 
-		ret = ina23x_reg_write(dev, INA23X_REG_MASK, config->mask);
+		ret = ina23x_reg_write(dev, data->registers_map[INA23X_REG_MASK], config->mask);
 		if (ret < 0) {
 			LOG_ERR("Failed to write mask register!");
 			return ret;
@@ -357,6 +467,7 @@ BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT) > 0,
 		.bus = DEVICE_DT_GET(DT_INST_BUS(inst)),	    \
 		.i2c_slv_addr = DT_INST_REG_ADDR(inst),		    \
 		.config = DT_INST_PROP(inst, config),		    \
+		.adc_config = DT_INST_PROP_OR(inst, adc_config, 0), \
 		.current_lsb = DT_INST_PROP(inst, current_lsb),	    \
 		.rshunt = DT_INST_PROP(inst, rshunt),		    \
 		COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, irq_gpios), \

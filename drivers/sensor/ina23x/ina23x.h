@@ -8,21 +8,20 @@
 #define ZEPHYR_DRIVERS_SENSOR_INA23X_H_
 
 #include <drivers/gpio.h>
+#include <drivers/i2c.h>
 
-#define INA23X_REG_CONFIG     0x00
-#define INA23X_REG_SHUNT_VOLT 0x01
-#define INA23X_REG_BUS_VOLT   0x02
-#define INA23X_REG_POWER      0x03
-#define INA23X_REG_CURRENT    0x04
-#define INA23X_REG_CALIB      0x05
-#define INA23X_REG_MASK       0x06
-#define INA23X_REG_ALERT      0x07
+#define INA237_REG_MANUFACTURER_ID 0x3E
+#define INA237_REG_ADC_CONFIG     0x01
+
+#define INA237_MANUFACTURER_ID 0x5449
 
 struct ina23x_data {
 	const struct device *dev;
-	uint16_t current;
-	uint16_t bus_voltage;
-	uint16_t power;
+	int32_t id;
+	const uint8_t *registers_map;
+	int32_t current;
+	int32_t bus_voltage;
+	int32_t power;
 #ifdef CONFIG_INA23X_TRIGGER
 	const struct device *gpio;
 	struct gpio_callback gpio_cb;
@@ -35,6 +34,7 @@ struct ina23x_config {
 	const struct device *bus;
 	const uint16_t i2c_slv_addr;
 	uint16_t config;
+	uint16_t adc_config;
 	uint16_t current_lsb;
 	uint16_t rshunt;
 #ifdef CONFIG_INA23X_TRIGGER
