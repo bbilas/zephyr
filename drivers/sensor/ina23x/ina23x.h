@@ -9,6 +9,7 @@
 
 #include <drivers/gpio.h>
 
+#ifdef CONFIG_INA23X_VARIANT_230
 #define INA23X_REG_CONFIG     0x00
 #define INA23X_REG_SHUNT_VOLT 0x01
 #define INA23X_REG_BUS_VOLT   0x02
@@ -17,12 +18,28 @@
 #define INA23X_REG_CALIB      0x05
 #define INA23X_REG_MASK       0x06
 #define INA23X_REG_ALERT      0x07
+#else
+#define INA23X_REG_CONFIG     0x00
+#define INA23X_ADC_CONFIG     0x01
+#define INA23X_REG_SHUNT_VOLT 0x04
+#define INA23X_REG_BUS_VOLT   0x05
+#define INA23X_REG_POWER      0x08
+#define INA23X_REG_CURRENT    0x07
+#define INA23X_REG_CALIB      0x02
+#define INA23X_REG_MASK       0x06
+#define INA23X_REG_ALERT      0x0B
+#endif
 
 struct ina23x_data {
 	const struct device *dev;
 	uint16_t current;
 	uint16_t bus_voltage;
+#ifdef CONFIG_INA23X_VARIANT_230
 	uint16_t power;
+#else
+	uint32_t power;
+	uint16_t shunt_voltage;
+#endif
 #ifdef CONFIG_INA23X_TRIGGER
 	const struct device *gpio;
 	struct gpio_callback gpio_cb;
@@ -35,6 +52,7 @@ struct ina23x_config {
 	const struct device *bus;
 	const uint16_t i2c_slv_addr;
 	uint16_t config;
+	uint16_t adc_config;
 	uint16_t current_lsb;
 	uint16_t rshunt;
 #ifdef CONFIG_INA23X_TRIGGER
