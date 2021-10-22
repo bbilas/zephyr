@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef GSM_PPP_H_
-#define GSM_PPP_H_
+#ifndef ZEPHYR_INCLUDE_DRIVERS_MODEM_GSM_PPP_H_
+#define ZEPHYR_INCLUDE_DRIVERS_MODEM_GSM_PPP_H_
 
 #define GSM_PPP_MDM_MANUFACTURER_LENGTH  10
 #define GSM_PPP_MDM_MODEL_LENGTH         16
@@ -59,4 +59,4 @@ void gsm_ppp_register_modem_power_callback(const struct device *dev,
  */
 const struct gsm_ppp_modem_info *gsm_ppp_modem_info(const struct device *dev);
 
-#endif /* GSM_PPP_H_ */
+#endif /* ZEPHYR_INCLUDE_DRIVERS_MODEM_GSM_PPP_H_ */
