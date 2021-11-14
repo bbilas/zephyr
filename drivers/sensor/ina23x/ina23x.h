@@ -31,7 +31,6 @@
 #endif
 
 struct ina23x_data {
-	const struct device *dev;
 	uint16_t current;
 	uint16_t bus_voltage;
 #ifdef CONFIG_INA23X_VARIANT_230
@@ -49,8 +48,7 @@ struct ina23x_data {
 };
 
 struct ina23x_config {
-	const struct device *bus;
-	const uint16_t i2c_slv_addr;
+	struct i2c_dt_spec i2c;
 	uint16_t config;
 	uint16_t adc_config;
 	uint16_t current_lsb;
