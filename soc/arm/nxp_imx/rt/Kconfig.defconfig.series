@@ -64,6 +64,10 @@ config IMX_USDHC
 	default y if (HAS_MCUX_USDHC1 || HAS_MCUX_USDHC2)
 	depends on SDHC
 
+config ADC_MCUX_ETC
+	default y if HAS_MCUX_ADC_ETC
+	depends on ADC
+
 if FLASH_MCUX_FLEXSPI_XIP
 
 # Avoid RWW hazards by defaulting logging to disabled
